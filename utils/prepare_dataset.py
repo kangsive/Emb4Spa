@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
-import geom_scaler
+import utils.geom_scaler as geom_scaler
 
 
 gs = GeomScaler()
@@ -85,17 +85,20 @@ def prepare_polygon_dataset(wkts, types, max_seq_len, train=True): # TODO - 1. s
     
     return tokens, labels, mask
 
-def prepare_dataset_fixedsize(batch_size=32, dataset_size=1000):
-    loaded = np.load('buildings_test_v8.npz')
-    fixed_size_geoms = loaded['fixed_size_geoms'][:dataset_size]
-    geom_types = loaded['building_type'][:dataset_size]
+def prepare_dataset_fixedsize(file="dataset/buildings_train_v8.npz", batch_size=32, dataset_size=None, geom_scale=None):
+    loaded = np.load(file)
+    fixed_size_geoms = loaded['fixed_size_geoms']
+    geom_types = loaded['building_type']
+    if dataset_size is not None:
+        fixed_size_geoms = fixed_size_geoms[:dataset_size]
+        geom_types = geom_types[:dataset_size]
 
-    geom_train, geom_test, label_train, label_test = train_test_split(fixed_size_geoms, geom_types, test_size=0.2, random_state=42)
-
-
-    # Normalize
-    geom_scale = geom_scaler.scale(geom_train)
-    geom_train = geom_scaler.transform(geom_train, geom_scale)
-    geom_test = geom_scaler.transform(geom_test, geom_scale)  # re-use variance from training
-
-    return geom_train, geom_test, label_train, label_test
+    if "test" in file:
+        return geom_scaler.transform(fixed_size_geoms, geom_scale), geom_types
+    else:
+        geom_train, geom_test, label_train, label_test = train_test_split(fixed_size_geoms, geom_types, test_size=0.2, random_state=42)
+        # Normalize
+        geom_scale = geom_scaler.scale(geom_train)
+        geom_train = geom_scaler.transform(geom_train, geom_scale)
+        geom_test = geom_scaler.transform(geom_test, geom_scale)  # re-use variance from training
+        return geom_train, geom_test, label_train, label_test, geom_scale
