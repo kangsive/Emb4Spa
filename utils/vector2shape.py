@@ -31,6 +31,8 @@ def reverse_vector_polygon(geom_vector):
     end_indices = np.where((geom_vector[:, RENDER_INDEX] == 0) & (np.roll(geom_vector[:, RENDER_INDEX], 1) == 1))[0]
     shapes = []
     for start_idx, end_idx in zip(start_indices, end_indices):
+        if end_idx < start_idx and geom_vector[end_idx, FULL_STOP_INDEX] == 1: # Fix 111101111 like case
+            start_idx = 0
         shape = geom_vector[start_idx:end_idx+1, X_INDEX:Y_INDEX+1]
         shapes.append(shape)
 
