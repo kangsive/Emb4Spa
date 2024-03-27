@@ -6,12 +6,15 @@ GEOMETRY_TYPES = ["GeometryCollection", "Point", "LineString", "Polygon", "Multi
                   "MultiPolygon", "Geometry"]
 X_INDEX = 0  # the X coordinate position
 Y_INDEX = 1  # the Y coordinate position
-RENDER_INDEX = Y_INDEX + 1  # Render index start
+IS_INNER_INDEX = Y_INDEX + 1  # Render index start
+IS_OUTER_INDEX = IS_INNER_INDEX + 1
+IS_INNER_LEN = 2  # One-hot vector indicating a hole (inner ring) or boundary (outer) ring in a geometry
 RENDER_LEN = 3  # Render one-hot vector length
+RENDER_INDEX = IS_OUTER_INDEX + 1
 ONE_HOT_LEN = 2 + RENDER_LEN  # Length of the one-hot encoded part
 STOP_INDEX = RENDER_INDEX + 1  # Stop index for the first geometry. A second one follows
-FULL_STOP_INDEX = STOP_INDEX + 1  # Full stop index. No more points to follow
-GEO_VECTOR_LEN = FULL_STOP_INDEX + 1  # The length needed to describe the features of a geometry point
+GEO_VECTOR_LEN = STOP_INDEX + 2  # The length needed to describe the features of a geometry point
+FULL_STOP_INDEX = -1  # Full stop index. No more points to follow
 
 
 def reverse_vector_polygon(geom_vector):
@@ -37,10 +40,9 @@ def reverse_vector_polygon(geom_vector):
         shapes.append(shape)
 
     if len(shapes) > 0: # TODO - consider inner and outer points
-        polygons = [Polygon(shape) for shape in shapes if shape.shape[0]>=4]
-        # return MultiPolygon(polygons)
-    # elif len(shapes) == 1:
-        return Polygon(shapes[0])
+        holes = shapes[:-1]
+        shell = shapes[-1]
+        return Polygon(shell=shell, holes=holes)
     else:
         return Polygon(geom_vector[:, X_INDEX:Y_INDEX+1])
     

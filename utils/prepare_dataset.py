@@ -6,7 +6,9 @@ import torch
 import numpy as np
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
+from utils.vectorizer import vectorize_wkt
 import utils.geom_scaler as geom_scaler
+
 
 
 gs = GeomScaler()
@@ -33,15 +35,37 @@ def prepare_dataset(max_seq_len=64, batch_size=32, dataset_size=1000):
 
     ori_train_data, ori_train_labels, ori_val_data, ori_val_labels, ori_test_data, ori_test_labels = dataset_split(df, 0.1, 0.1)
 
-    train_tokens, train_labels, train_mask = prepare_polygon_dataset(ori_train_data, ori_train_labels, max_seq_len)
-    val_tokens, val_labels, val_mask = prepare_polygon_dataset(ori_val_data, ori_val_labels, max_seq_len, train=False)
-    test_tokens, test_labels, test_mask = prepare_polygon_dataset(ori_test_data, ori_test_labels, max_seq_len, train=False)
+    train_tokens, train_labels, train_mask = get_trainable_dataset_with_len_filter(ori_train_data, ori_train_labels, max_seq_len)
+    val_tokens, val_labels, val_mask = get_trainable_dataset_with_len_filter(ori_val_data, ori_val_labels, max_seq_len, train=False)
+    test_tokens, test_labels, test_mask = get_trainable_dataset_with_len_filter(ori_test_data, ori_test_labels, max_seq_len, train=False)
 
     train_loader = DataLoader(TensorDataset(train_tokens, train_labels, train_mask), batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(TensorDataset(val_tokens, val_labels, val_mask), batch_size=batch_size)
     test_loader = DataLoader(TensorDataset(test_tokens, test_labels, test_mask), batch_size=batch_size)
 
     return train_loader, val_loader, test_loader, train_tokens, train_labels, train_mask, test_tokens, test_labels, test_mask
+
+
+def prepare_dataset_mnist(file="dataset/mnist_polygon_train_10k.csv", train=True, max_seq_len=64,
+                            batch_size=32, split_ratio=0.2, dataset_size=None, with_mask=False):
+    df = pd.read_csv(file)
+    wkts = df['wkt'].to_numpy()
+    labels = df['label'].to_numpy()
+
+    if dataset_size:
+        assert dataset_size < len(df), "Dataset size exceed the size of origial dataset"
+        wkts = wkts[:dataset_size]
+        labels = labels[:dataset_size]
+    
+    if train:
+        train_data, val_data, train_labels, val_labels = train_test_split(wkts, labels, test_size=split_ratio, random_state=42)
+        train_tokens, train_labels, train_mask = get_trainable_dataset(train_data, train_labels, max_seq_len, with_mask=with_mask)
+        val_tokens, val_labels, val_mask = get_trainable_dataset(val_data, val_labels, max_seq_len, train=False, with_mask=with_mask)
+        return train_tokens, train_labels, train_mask, val_tokens, val_labels, val_mask
+    else:
+        test_tokens, test_labels, test_mask = get_trainable_dataset(wkts, labels, max_seq_len, train=False, with_mask=with_mask)
+        return test_tokens, test_labels, test_mask
+
 
 def dataset_split(df, val_split_ratio, test_split_ratio):
 
@@ -62,13 +86,41 @@ def dataset_split(df, val_split_ratio, test_split_ratio):
     return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
 
-def prepare_polygon_dataset(wkts, types, max_seq_len, train=True): # TODO - 1. split into train, validate, test. 2. randomly sample
+def get_trainable_dataset(wkts, labels, max_seq_len, train=True, with_mask=False):
+    geoms, start_points = [], []
+    for wkt in wkts:
+        geom = vectorize_wkt(wkt, max_points=max_seq_len, simplify=True, fixed_size=True)
+        geoms.append(geom)
+        if with_mask:
+            num_point = gv.num_points_from_wkt(wkt)
+            if  num_point > max_seq_len:
+                num_point = max_seq_len
+            start_points.append(num_point)
+
+    tokens = np.stack(geoms, axis=0)
+
+    if train:
+        gs.fit(tokens)
+    tokens = gs.transform(tokens)
+    tokens = torch.tensor(tokens, dtype=torch.float32)
+    labels = torch.tensor(labels, dtype=torch.long)
+
+    if with_mask:
+        start_points = torch.tensor(start_points).unsqueeze(1)
+        indices = torch.arange(max_seq_len).unsqueeze(0)
+        mask = indices >= start_points
+        return tokens, labels, mask
+
+    return tokens, labels, None
+
+
+def get_trainable_dataset_with_len_filter(wkts, types, max_seq_len, train=True): # TODO - 1. split into train, validate, test. 2. randomly sample
     geoms, labels, start_points = [], [], []
     for i, wkt in enumerate(wkts):
         num_point = gv.num_points_from_wkt(wkt)
         if  num_point > max_seq_len:
-             continue
-        geom = gv.vectorize_wkt(wkt, max_points=max_seq_len, fixed_size=True)
+             continue # If cannot perform simplify process (error occurs)
+        geom = gv.vectorize_wkt(wkt, max_points=max_seq_len, simplify=True, fixed_size=True)
         geoms.append(geom)
         labels.append(types[i])
         start_points.append(num_point)
@@ -82,8 +134,7 @@ def prepare_polygon_dataset(wkts, types, max_seq_len, train=True): # TODO - 1. s
     tokens = gs.transform(tokens)
     tokens = torch.tensor(tokens, dtype=torch.float32)
     labels = torch.tensor(labels, dtype=torch.long)
-    
-    return tokens, labels, mask
+
 
 def prepare_dataset_fixedsize(file="dataset/buildings_train_v8.npz", batch_size=32, dataset_size=None, geom_scale=None):
     loaded = np.load(file)
