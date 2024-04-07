@@ -3,6 +3,7 @@ from typing import List, Optional
 
 import shapely
 from shapely import wkt, geometry
+from shapely.geometry import Polygon, LineString
 import numpy as np
 import math
 
@@ -101,12 +102,25 @@ def vectorize_wkt(
     if fixed_size:
         assert max_points, 'If you want to produce fixed sized geometry_vectors, please specify the get_max_points.'
 
-    if max_points and total_points > max_points:
-        assert simplify, 'The number of points in the geometry exceeds the get_max_points but the reduce_points ' \
-                         'parameter was set to False. Please set the reduce_points parameter to True to reduce ' \
-                         'the number of points, or increase get_max_points parameter.'
-        shape = recursive_simplify(max_points, shape)
-        total_points = num_points_from_wkt(shape.wkt)
+    if max_points:
+        if total_points > max_points:
+            assert simplify, 'The number of points in the geometry exceeds the get_max_points but the reduce_points ' \
+                            'parameter was set to False. Please set the reduce_points parameter to True to reduce ' \
+                            'the number of points, or increase get_max_points parameter.'
+            shape = recursive_simplify(max_points, shape)
+            total_points = num_points_from_wkt(shape.wkt)
+
+        if fixed_size and total_points < max_points:
+            original_linestring = LineString(shape.exterior.coords)
+
+            # Interpolate points along the LineString
+            num_points = max_points
+            interpolated_points = [original_linestring.interpolate(distance) for distance in
+                                np.linspace(0, original_linestring.length, num_points)]
+
+            # Create a new polygon from the interpolated points
+            shape = Polygon([[point.x, point.y] for point in interpolated_points])
+
 
     if not max_points:
         max_points = total_points
@@ -134,12 +148,20 @@ def vectorize_wkt(
     else:
         raise ValueError("Don't know how to get the number of points from geometry type {}".format(shape.geom_type))
 
-    if fixed_size:
-        full_stop_position = len(geom_matrix)-1
-        pad_len = max_points - len(geom_matrix)
-        pad_shape = ((0, pad_len), (0, 0))
-        geom_matrix = np.pad(geom_matrix, pad_shape, mode='constant')
-        geom_matrix[full_stop_position, FULL_STOP_INDEX] = 1
+    # if fixed_size:
+    #     full_stop_position = len(geom_matrix)-1
+    #     pad_len = max_points - len(geom_matrix)
+    #     pad_shape = ((0, pad_len), (0, 0))
+    #     geom_matrix = np.pad(geom_matrix, pad_shape, mode='constant')
+    #     geom_matrix[full_stop_position, FULL_STOP_INDEX] = 1
+    # return geom_matrix
+
+    # if fixed_size:
+    #     pad_len = max_points - len(geom_matrix)
+    #     pad_shape = ((0, pad_len), (0, 0))
+    #     geom_matrix = np.pad(geom_matrix, pad_shape, mode='constant')
+    #     geom_matrix[:max_points, FULL_STOP_INDEX] = 1
+    
     return geom_matrix
 
 

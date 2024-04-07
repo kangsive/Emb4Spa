@@ -99,6 +99,9 @@ def get_trainable_dataset(wkts, labels, max_seq_len, train=True, with_mask=False
 
     tokens = np.stack(geoms, axis=0)
 
+    # tokens = np.diff(tokens, axis=1)
+    # tokens = np.concatenate([tokens, np.zeros((tokens.shape[0], 1, tokens.shape[2]))], axis=1)
+
     if train:
         gs.fit(tokens)
     tokens = gs.transform(tokens)
