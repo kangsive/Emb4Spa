@@ -111,15 +111,7 @@ def vectorize_wkt(
             total_points = num_points_from_wkt(shape.wkt)
 
         if fixed_size and total_points < max_points:
-            original_linestring = LineString(shape.exterior.coords)
-
-            # Interpolate points along the LineString
-            num_points = max_points
-            interpolated_points = [original_linestring.interpolate(distance) for distance in
-                                np.linspace(0, original_linestring.length, num_points)]
-
-            # Create a new polygon from the interpolated points
-            shape = Polygon([[point.x, point.y] for point in interpolated_points])
+            shape = interpolate_polygon(shape, num_points=max_points)
 
 
     if not max_points:
@@ -226,3 +218,24 @@ def recursive_simplify(max_points: int, shape: shapely.geometry) -> shapely.geom
         tolerance = math.pow(10, log_tolerance)
         shape = shape.simplify(tolerance)
     return shape
+
+
+def interpolate_polygon(polygon, num_points=64):
+    """
+    Interpolate simply polygon to have given number of points
+    :param polygon: the simple shapely polygon
+    :return polygon: the interpolated shaply polygon
+   """
+    num_points = 64
+    sub_shapes = [polygon.exterior] + [interior for interior in polygon.interiors] if len(polygon.interiors) else [polygon.exterior]
+    num_list =  [len(sub_shape.coords) for sub_shape in sub_shapes]
+    total_length = sum(num_list)
+    interp_num = [int(length/total_length*num_points) for length in num_list]  # Assin num_points according to length
+    interp_num[0] += num_points - sum(interp_num)  # Insure the total num of points is equal to given
+
+    interp_points = [[sub_shape.interpolate(distance) for distance in np.linspace(0, sub_shape.length, interp_num[i])]
+                        for i, sub_shape in enumerate(sub_shapes)]  # Get interpolated points for each sub_shape
+
+    shell = [[point.x, point.y] for point in interp_points[0]]
+    holes = [[[point.x, point.y] for point in sub_points] for sub_points in interp_points[1:]] if len(interp_points) > 1 else None
+    return Polygon(shell=shell, holes=holes)  # Create new polygon from interpolated points

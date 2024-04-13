@@ -86,6 +86,24 @@ def dataset_split(df, val_split_ratio, test_split_ratio):
     return train_data, train_labels, val_data, val_labels, test_data, test_labels
 
 
+def normalize(data, method="min_max"):
+    if method == "min_max":
+        # Compute min and max values along the num_features dimension
+        min_vals = np.min(data[:, :, :2], axis=1, keepdims=True)
+        max_vals = np.max(data[:, :, :2], axis=1, keepdims=True)
+        # Perform min-max normalization
+        data[:, :, :2] -= min_vals
+        data[:, :, :2] /=  max_vals - min_vals
+
+    else:
+        mean = np.mean(data[:, :, :2], axis=1, keepdims=True)
+        std = np.std(data[:, :, :2], axis=1, keepdims=True)
+        
+        data[:, :, :2] -= mean
+        data[:, :, :2] /=  std
+    return data
+
+
 def get_trainable_dataset(wkts, labels, max_seq_len, train=True, with_mask=False):
     geoms, start_points = [], []
     for wkt in wkts:
@@ -102,9 +120,11 @@ def get_trainable_dataset(wkts, labels, max_seq_len, train=True, with_mask=False
     # tokens = np.diff(tokens, axis=1)
     # tokens = np.concatenate([tokens, np.zeros((tokens.shape[0], 1, tokens.shape[2]))], axis=1)
 
-    if train:
-        gs.fit(tokens)
-    tokens = gs.transform(tokens)
+    tokens = normalize(tokens, method="min_max")
+
+    # if train:
+    #     gs.fit(tokens)
+    # tokens = gs.transform(tokens)
     tokens = torch.tensor(tokens, dtype=torch.float32)
     labels = torch.tensor(labels, dtype=torch.long)
 
