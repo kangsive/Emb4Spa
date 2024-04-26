@@ -7,10 +7,13 @@ import torch.nn as nn
 import torch.optim as optim
 
 from utils.prepare_dataset import prepare_dataset_mnist
-from utils.lr_schedule import linear_warmup_then_exp_decay, adjust_learning_rate
 from torch.utils.data import TensorDataset, DataLoader
 
 from pot import Pot
+from utils.lars import LARS
+
+from utils.lr_schedule import adjust_learning_rate
+
 
 
 def get_args_parser():
@@ -136,12 +139,17 @@ def main(args):
 
     model.load_state_dict(pot_state_dict, strict=False)
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=args.weight_decay)
+    # Following MAE's linear probing
+    model.head = torch.nn.Sequential(torch.nn.BatchNorm1d(model.head.in_features, affine=False, eps=1e-6), model.head)
+    # Freeze all but the head
+    for _, p in model.named_parameters():
+        p.requires_grad = False
+    for _, p in model.head.named_parameters():
+        p.requires_grad = True
 
-    # Refer to https://chat.openai.com/share/8e4cf272-4987-480d-99e4-8f97a43eeb4b
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-    # scheduler = linear_warmup_then_exp_decay(optimizer, args.lr, 3, 100)
+    # Following MAE's linear probing
+    # optimizer = LARS(model.head.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=args.weight_decay)
 
     loss_func = nn.CrossEntropyLoss()
 
@@ -170,9 +178,9 @@ def main(args):
             val_correct = (val_predicted == val_labels).sum().item()
             val_acc = val_correct / val_tokens.shape[0]
 
-        current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
+        adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
         
-        print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}, Lr: {current_lr}")
+        print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}")
 
         # wandb.log({
         #     "training loss": train_loss,

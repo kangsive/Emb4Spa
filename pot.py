@@ -62,7 +62,7 @@ class Pot(nn.Module):
         self.pos_emb = PositionalEncoding(d_model, max_seq_len)
         self.project = nn.Linear(fea_dim, d_model)
 
-        self.fc_norm = nn.LayerNorm(64)
+        self.fc_norm = nn.LayerNorm(64, eps=1e-6)
         self.head_drop = nn.Dropout(0.1)
         self.head = nn.Linear(64, num_class)
 
