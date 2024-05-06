@@ -64,17 +64,38 @@ def get_finetune_dataset_mnist(file, dataset_size=None, train=True, max_points=6
         save_path: save vecterized dataset, this can save time for loading dataset next time.
 
     """
+    """
+    Get pretrain dataset, a dataset of random polygons
+
+    Args:
+        file (str): a numpy zip file end with '.npz'
+        dataset_size (int): if file is not specified, this is used for polygon generation.
+        train (bool): if the dataset for training, False for testset.
+        max_points: if file is not specified, this is used for polygon generation.
+        save_path: save vecterized dataset, this can save time for loading dataset next time.
+
+    """
     if ".npz" in file:
         loaded = np.load(file)
-        train_tokens, train_labels = loaded["train_tokens"], loaded["train_labels"]
-        val_tokens, val_labels = loaded["val_tokens"], loaded["val_labels"]
+        if train:
+            train_tokens, train_labels = loaded["train_tokens"], loaded["train_labels"]
+            val_tokens, val_labels = loaded["val_tokens"], loaded["val_labels"]
 
-        train_tokens = torch.tensor(train_tokens, dtype=torch.float32)
-        train_labels = torch.tensor(train_labels, dtype=torch.long)
-        val_tokens = torch.tensor(val_tokens, dtype=torch.float32)
-        val_labels = torch.tensor(val_labels, dtype=torch.long)
+            train_tokens = torch.tensor(train_tokens, dtype=torch.float32)
+            train_labels = torch.tensor(train_labels, dtype=torch.long)
+            val_tokens = torch.tensor(val_tokens, dtype=torch.float32)
+            val_labels = torch.tensor(val_labels, dtype=torch.long)
 
-        return train_tokens, train_labels, val_tokens, val_labels
+            return train_tokens, train_labels, val_tokens, val_labels
+
+        else:
+            test_tokens, test_labels = loaded["test_tokens"], loaded["test_labels"]
+
+            test_tokens = torch.tensor(test_tokens, dtype=torch.float32)
+            test_labels = torch.tensor(test_labels, dtype=torch.long)
+
+            return test_tokens, test_labels
+
 
     elif ".csv" in file:
         if train:
@@ -84,8 +105,8 @@ def get_finetune_dataset_mnist(file, dataset_size=None, train=True, max_points=6
                                                                                                     dataset_size=dataset_size,
                                                                                                     max_seq_len=max_points,
                                                                                                     train=train)
-            save_name = file.replace(".csv", f"_subsize{dataset_size}.npz")
-            print(f"saving {save_name}")
+            save_name = file.replace(".csv", f"_subsize{dataset_size}.npz") if dataset_size \
+                        else file.replace(".csv", ".npz")
             np.savez(save_name, train_tokens=train_tokens, train_labels=train_labels, val_tokens=val_tokens, val_labels=val_labels)
 
             return train_tokens, train_labels, val_tokens, val_labels
@@ -96,6 +117,10 @@ def get_finetune_dataset_mnist(file, dataset_size=None, train=True, max_points=6
                                                                 max_seq_len=64,
                                                                 dataset_size=None,
                                                                 train=train)
+            save_name = file.replace(".csv", f"_subsize{dataset_size}.npz") if dataset_size \
+                        else file.replace(".csv", ".npz")
+            np.savez(save_name, test_tokens=test_tokens, test_labels=test_labels)
+
             return test_tokens, test_labels
 
 
@@ -116,6 +141,7 @@ def main(args):
         print("Using cpu since cuda is not available")
 
     # model_name = f"pot_finetune_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
+    model_name = "fine_tune_pot"
 
     train_tokens, train_labels, val_tokens, val_labels  = get_finetune_dataset_mnist(args.data_path, dataset_size=2000, train=True)
     train_loader= DataLoader(TensorDataset(train_tokens, train_labels), batch_size=args.batch_size, shuffle=True)
@@ -180,7 +206,7 @@ def main(args):
         # },
         # step = epoch+1)
 
-    # torch.save(model.state_dict(), f"weights/{model_name}.pth")
+    torch.save(model.state_dict(), f"weights/{model_name}.pth")
     # wandb.log_model(path=f"weights/{model_name}.pth", name=model_name)
     # wandb.finish()
 

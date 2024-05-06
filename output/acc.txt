@@ -1,0 +1,1 @@
+fine_tune_acc: 0.94, lin_prob_acc: 0.8815

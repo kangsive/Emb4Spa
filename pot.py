@@ -35,7 +35,7 @@ class Pot(nn.Module):
         dropout: the dropout value.
         max_seq_len: maximum sequence length, for polygon it's the number of points.
     """
-    def __init__(self, fea_dim=7, d_model=36, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=None):
+    def __init__(self, fea_dim=7, d_model=36, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=10):
         super().__init__()
 
         self.enc_layer1 = nn.Sequential(nn.TransformerEncoderLayer(d_model=d_model, nhead=4, dim_feedforward=ffn_dim,
