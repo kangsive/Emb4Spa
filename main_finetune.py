@@ -17,7 +17,7 @@ def get_args_parser():
     """
     Get arguments parser for pre-training
     """
-    parser = argparse.ArgumentParser('PoTAE pre-training', add_help=False)
+    parser = argparse.ArgumentParser('PoT fine tuning', add_help=False)
     parser.add_argument('--batch_size', default=256, type=int,
                         help='training batch size, (default: 256)')
     parser.add_argument('--epochs', default=150, type=int,
@@ -43,7 +43,7 @@ def get_args_parser():
                         help='weight decay (default: 0.05)')
     
     # Dataset parameters
-    parser.add_argument('--data_path', default='dataset/mnist_polygon_train_10k_subsize2000.npz', type=str,
+    parser.add_argument('--data_path', default='dataset/mnist_polygon_train_10k.npz', type=str,
                         help='dataset path')
     
     parser.add_argument('--device', default='cuda',
@@ -143,7 +143,7 @@ def main(args):
     # model_name = f"pot_finetune_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
     model_name = "fine_tune_pot"
 
-    train_tokens, train_labels, val_tokens, val_labels  = get_finetune_dataset_mnist(args.data_path, dataset_size=2000, train=True)
+    train_tokens, train_labels, val_tokens, val_labels  = get_finetune_dataset_mnist(args.data_path, dataset_size=None, train=True)
     train_loader= DataLoader(TensorDataset(train_tokens, train_labels), batch_size=args.batch_size, shuffle=True)
 
     num_class= train_labels.unique().shape[0]

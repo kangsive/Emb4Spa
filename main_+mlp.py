@@ -9,12 +9,26 @@ import torch.optim as optim
 from utils.prepare_dataset import prepare_dataset_mnist
 from torch.utils.data import TensorDataset, DataLoader
 
-from pot import Pot
+from potae import PoTAE
 from utils.lars import LARS
 
 from utils.lr_schedule import adjust_learning_rate
 from main_finetune import get_finetune_dataset_mnist
 
+
+class Classifier(nn.Module):
+    def __init__(self, input_size, dense_size, num_classes, dropout):
+        super().__init__()
+        self.dense1 = nn.Linear(input_size, dense_size)
+        self.dropout = nn.Dropout(dropout)
+        self.relu = nn.ReLU()
+        self.dense2 = nn.Linear(dense_size, num_classes)
+
+    def forward(self, x):
+        x = self.relu(self.dense1(x))
+        x = self.dropout(x)
+        x = self.dense2(x)
+        return x
 
 
 def get_args_parser():
@@ -40,7 +54,7 @@ def get_args_parser():
                         help='path to pre-trained model (stat_dict)')
     
     # Optimizer parameters
-    parser.add_argument('--lr', default=0.01, type=float,
+    parser.add_argument('--lr', default=0.004, type=float,
                         help='learning rate (absolute lr)')
     
     parser.add_argument('--weight_decay', default=0.0001, type=float, 
@@ -80,31 +94,15 @@ def main(args):
 
     num_class= train_labels.unique().shape[0]
 
-    model = Pot(fea_dim=args.fea_dim, d_model=36, ffn_dim=args.ffn_dim, dropout=args.dropout,
-                max_seq_len=args.max_seq_len, num_class=num_class).to(device)
+    model = Classifier(input_size=train_tokens.size(1), dense_size=128, num_classes=num_class, dropout=0.0).to(device)
+    emb_model = PoTAE()
+    emb_model.load_state_dict(torch.load(args.pretrain_model, map_location=torch.device('cpu')))
     
-    # Load pre-trained weights
-    pretrain_state_dict = torch.load(args.pretrain_model, map_location=torch.device('cpu'))
-    pot_state_dict = model.state_dict()
+    train_embeddings, _, _ = emb_model(train_tokens)
+    val_embeddings, _, _ = emb_model(val_tokens)
 
-    for name, param in pretrain_state_dict.items():
-        # Create a new state_dict for `pot` based on compatible keys from `potae`
-        if name in pot_state_dict and pot_state_dict[name].size() == param.size():
-            pot_state_dict[name].copy_(param) 
+    train_loader = DataLoader(TensorDataset(train_embeddings, train_labels), batch_size=args.batch_size, shuffle=True)
 
-    model.load_state_dict(pot_state_dict, strict=False)
-
-    # # Following MAE's linear probing
-    # model.head = torch.nn.Sequential(torch.nn.BatchNorm1d(model.head.in_features, affine=False, eps=1e-6), model.head)
-    
-    # Freeze all but the head
-    for _, p in model.named_parameters():
-        p.requires_grad = False
-    for _, p in model.head.named_parameters():
-        p.requires_grad = True
-
-    # Following MAE's linear probing
-    # optimizer = LARS(model.head.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=args.weight_decay)
 
     loss_func = nn.CrossEntropyLoss()
@@ -128,13 +126,13 @@ def main(args):
 
         model.eval()
         with torch.no_grad():
-            val_outputs = model(val_tokens)
+            val_outputs = model(val_embeddings)
             val_loss = loss_func(val_outputs, val_labels).item()
             _, val_predicted = torch.max(val_outputs, dim=-1)
             val_correct = (val_predicted == val_labels).sum().item()
             val_acc = val_correct / val_tokens.shape[0]
 
-        adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
+        # adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
         
         print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}")
 
@@ -144,7 +142,7 @@ def main(args):
         # },
         # step = epoch+1)
 
-    torch.save(model.state_dict(), f"weights/{model_name}.pth")
+    # torch.save(model.state_dict(), f"weights/{model_name}.pth")
     # wandb.log_model(path=f"weights/{model_name}.pth", name=model_name)
     # wandb.finish()
 
