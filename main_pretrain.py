@@ -39,7 +39,7 @@ def get_args_parser():
                         help='weight decay (default: 0.05)')
     
     # Dataset parameters
-    parser.add_argument('--data_path', default='dataset/synthetic_simple_200k.npz', type=str,
+    parser.add_argument('--data_path', default='./dataset/synthetic_simple_200k.npz', type=str,
                         help='dataset path')
     
     # parser.add_argument('--log_dir', default='./output_dir',
@@ -130,8 +130,8 @@ def main(args):
         # with open('training_log.txt', 'a') as f:
         #     f.write(f'Epoch: {epoch+1}, Training Loss: {train_loss}\n')
 
-    torch.save(model.state_dict(), f"weights/{model_name}.pth")
-    wandb.log_model(path=f"weights/{model_name}.pth", name=model_name)
+    torch.save(model.state_dict(), f"./weights/{model_name}.pth")
+    wandb.log_model(path=f"./weights/{model_name}.pth", name=model_name)
     wandb.finish()
 
 

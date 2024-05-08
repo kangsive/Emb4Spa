@@ -50,7 +50,7 @@ def get_args_parser():
                         help='dropout ratio during training (default: 0.1)')
     parser.add_argument('--max_seq_len', default=64, type=int,
                         help='the maximum sequence length of input tokens (default: 64)')
-    parser.add_argument('--pretrain_model', default="weights/synthetic_simple_200k_50epoch_transf.pth", type=str,
+    parser.add_argument('--pretrain_model', default="./weights/potae_pretrain_bs256_epoch100_runname-iconic-durian-30.pth", type=str,
                         help='path to pre-trained model (stat_dict)')
     
     # Optimizer parameters
@@ -61,7 +61,7 @@ def get_args_parser():
                         help='weight decay (default: 0.05)')
     
     # Dataset parameters
-    parser.add_argument('--data_path', default='dataset/mnist_polygon_train_10k_subsize2000.npz', type=str,
+    parser.add_argument('--data_path', default='./dataset/mnist_polygon_train_10k_subsize2000.npz', type=str,
                         help='dataset path')
     
     parser.add_argument('--device', default='cuda',
@@ -90,18 +90,21 @@ def main(args):
     model_name = "lin_prob_pot"
 
     train_tokens, train_labels, val_tokens, val_labels  = get_finetune_dataset_mnist(args.data_path, dataset_size=2000, train=True)
-    train_loader= DataLoader(TensorDataset(train_tokens, train_labels), batch_size=args.batch_size, shuffle=True)
 
     num_class= train_labels.unique().shape[0]
 
-    model = Classifier(input_size=train_tokens.size(1), dense_size=128, num_classes=num_class, dropout=0.0).to(device)
     emb_model = PoTAE()
     emb_model.load_state_dict(torch.load(args.pretrain_model, map_location=torch.device('cpu')))
-    
-    train_embeddings, _, _ = emb_model(train_tokens)
-    val_embeddings, _, _ = emb_model(val_tokens)
+    emb_model.eval()
+    with torch.no_grad():
+        train_embeddings, _, _ = emb_model(train_tokens)
+        val_embeddings, _, _ = emb_model(val_tokens)
+
+    # train_embeddings, val_embeddings = train_tokens.view(train_tokens.shape[0], -1), val_tokens.view(val_tokens.shape[0], -1)
 
     train_loader = DataLoader(TensorDataset(train_embeddings, train_labels), batch_size=args.batch_size, shuffle=True)
+
+    model = Classifier(input_size=train_embeddings.size(1), dense_size=512, num_classes=num_class, dropout=0.0).to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=args.weight_decay)
 
@@ -132,7 +135,7 @@ def main(args):
             val_correct = (val_predicted == val_labels).sum().item()
             val_acc = val_correct / val_tokens.shape[0]
 
-        # adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
+        adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
         
         print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}")
 
@@ -142,8 +145,8 @@ def main(args):
         # },
         # step = epoch+1)
 
-    # torch.save(model.state_dict(), f"weights/{model_name}.pth")
-    # wandb.log_model(path=f"weights/{model_name}.pth", name=model_name)
+    # torch.save(model.state_dict(), f"./weights/{model_name}.pth")
+    # wandb.log_model(path=f"./weights/{model_name}.pth", name=model_name)
     # wandb.finish()
 
 

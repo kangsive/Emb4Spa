@@ -32,7 +32,7 @@ def get_args_parser():
                         help='dropout ratio during training (default: 0.1)')
     parser.add_argument('--max_seq_len', default=64, type=int,
                         help='the maximum sequence length of input tokens (default: 64)')
-    parser.add_argument('--pretrain_model', default="weights/synthetic_simple_200k_50epoch_transf.pth", type=str,
+    parser.add_argument('--pretrain_model', default="weights/potae_pretrain_bs256_epoch100_runname-iconic-durian-30.pth", type=str,
                         help='path to pre-trained model (stat_dict)')
     
     # Optimizer parameters
@@ -43,7 +43,7 @@ def get_args_parser():
                         help='weight decay (default: 0.05)')
     
     # Dataset parameters
-    parser.add_argument('--data_path', default='dataset/mnist_polygon_train_10k.npz', type=str,
+    parser.add_argument('--data_path', default='./dataset/mnist_polygon_train_10k.npz', type=str,
                         help='dataset path')
     
     parser.add_argument('--device', default='cuda',
@@ -176,6 +176,7 @@ def main(args):
         total_loss = 0.0
         correct = 0
         for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = loss_func(outputs, labels)
@@ -190,6 +191,7 @@ def main(args):
 
         model.eval()
         with torch.no_grad():
+            val_tokens, val_labels = val_tokens.to(device), val_labels.to(device)
             val_outputs = model(val_tokens)
             val_loss = loss_func(val_outputs, val_labels).item()
             _, val_predicted = torch.max(val_outputs, dim=-1)
@@ -206,8 +208,8 @@ def main(args):
         # },
         # step = epoch+1)
 
-    torch.save(model.state_dict(), f"weights/{model_name}.pth")
-    # wandb.log_model(path=f"weights/{model_name}.pth", name=model_name)
+    torch.save(model.state_dict(), f"./weights/{model_name}.pth")
+    # wandb.log_model(path=f"./weights/{model_name}.pth", name=model_name)
     # wandb.finish()
 
 
