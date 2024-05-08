@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import math
 
+
 def linear_warmup_then_exp_decay(optimizer, base_lr, warmup_epochs, total_epochs):
     """Create a scheduler with linear warmup and exponential decay.
 
@@ -32,6 +33,7 @@ def linear_warmup_then_exp_decay(optimizer, base_lr, warmup_epochs, total_epochs
         return lr
             
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
 
 def adjust_learning_rate(optimizer, epoch, base_lr, warmup_epochs, total_epochs):
     min_lr = 1e-6

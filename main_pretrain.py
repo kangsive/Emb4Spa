@@ -8,6 +8,7 @@ import torch.optim as optim
 from pathlib import Path
 from potae import PoTAE
 from utils.generate_polygon import generate_polygon_and_vectorize
+from utils.lr_schedule import adjust_learning_rate
 
 
 
@@ -18,7 +19,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser('PoTAE pre-training', add_help=False)
     parser.add_argument('--batch_size', default=256, type=int,
                         help='training batch size, (default: 256)')
-    parser.add_argument('--epochs', default=50, type=int,
+    parser.add_argument('--epochs', default=100, type=int,
                         help='the number of training iteration over the whole dataset (default: 50)')
     
     # Model parameters
@@ -116,10 +117,13 @@ def main(args):
 
         train_loss = total_loss/batch_count
 
-        print(f"Epoch {epoch+1}, Training Loss: {train_loss}")
+        current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
+
+        print(f"Epoch {epoch+1}, Training Loss: {train_loss}, Lr: {current_lr}")
 
         wandb.log({
-            "training loss": train_loss
+            "training loss": train_loss,
+            "Lr": {current_lr}
         },
         step = epoch+1)
 
