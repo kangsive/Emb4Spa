@@ -7,7 +7,7 @@ from sklearn.manifold import TSNE
 from pot import Pot
 from potae import PoTAE
 from utils.vector2shape import reverse_vector_polygon
-from main_finetune import get_finetune_dataset_mnist
+from utils.prepare_dataset import get_finetune_dataset_mnist
 
 
 def visualize_embeddings(embeddings, labels, save_name):
