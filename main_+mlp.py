@@ -9,45 +9,12 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
 from potae import PoTAE
-from utils.lars import LARS
 
 from utils.lr_schedule import adjust_learning_rate
 from utils.prepare_dataset import get_finetune_dataset_mnist
 from evaluate import downstream_evaluate
-
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-
-
-class EarlyStopper:
-    def __init__(self, patience=1, min_delta=0):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.counter = 0
-        self.min_validation_loss = float('inf')
-
-    def early_stop(self, validation_loss):
-        if validation_loss < self.min_validation_loss:
-            self.min_validation_loss = validation_loss
-            self.counter = 0
-        elif validation_loss > (self.min_validation_loss + self.min_delta):
-            self.counter += 1
-            if self.counter >= self.patience:
-                return True
-        return False
-
-class Classifier(nn.Module):
-    def __init__(self, input_size, dense_size, num_classes, dropout):
-        super().__init__()
-        self.dense1 = nn.Linear(input_size, dense_size)
-        self.dropout = nn.Dropout(dropout)
-        self.relu = nn.ReLU()
-        self.dense2 = nn.Linear(dense_size, num_classes)
-
-    def forward(self, x):
-        x = self.relu(self.dense1(x))
-        x = self.dropout(x)
-        x = self.dense2(x)
-        return x
+from utils.early_stop import EarlyStopper
+from pot import Classifier
 
 
 def get_args_parser():
@@ -90,7 +57,6 @@ def get_args_parser():
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing, only if cuda is availale')
     
-    
     return parser
 
 
@@ -112,7 +78,7 @@ def main(args):
 
     if not args.no_embedding:
         emb_model = PoTAE()
-        emb_model.load_state_dict(torch.load(args.pretrain_model, map_location=torch.device('cpu')))
+        emb_model.load_state_dict(torch.load(args.pretrain_model, map_location=device))
         emb_model.eval()
         with torch.no_grad():
             train_embeddings, _, _ = emb_model(train_tokens)

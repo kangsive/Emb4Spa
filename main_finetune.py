@@ -6,11 +6,13 @@ import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 
-from utils.prepare_dataset import prepare_dataset_mnist
-from utils.lr_schedule import linear_warmup_then_exp_decay, adjust_learning_rate
+from utils.prepare_dataset import get_finetune_dataset_mnist
+from utils.lr_schedule import adjust_learning_rate
 from torch.utils.data import TensorDataset, DataLoader
 
 from pot import Pot
+from evaluate import downstream_evaluate
+from utils.early_stop import EarlyStopper
 
 
 def get_args_parser():
@@ -22,6 +24,13 @@ def get_args_parser():
                         help='training batch size, (default: 256)')
     parser.add_argument('--epochs', default=150, type=int,
                         help='the number of training iteration over the whole dataset (default: 50)')
+    parser.add_argument('--no_wandb', default=False, action="store_true")
+    parser.add_argument('--runs', default=1, type=int,
+                        help='number of runs for an hyperparameter setting')
+    parser.add_argument('--group_name', default="", type=str,
+                        help='group name for wandb runs')
+    parser.add_argument('--fine_tune', default=False, action="store_true",
+                        help='fine tune from pre-trained model or train from scratch')
     
     # Model parameters
     parser.add_argument('--fea_dim', default=7, type=int,
@@ -34,17 +43,24 @@ def get_args_parser():
                         help='the maximum sequence length of input tokens (default: 64)')
     parser.add_argument('--pretrain_model', default="weights/potae_pretrain_bs256_epoch100_runname-iconic-durian-30.pth", type=str,
                         help='path to pre-trained model (stat_dict)')
+    parser.add_argument('--early_stop', default=False, action="store_true",
+                        help='apply early stop')
+    parser.add_argument('--num_layers', default=1, type=int,
+                        help='number of transfomer encoder layers of each hierachical stage')
     
     # Optimizer parameters
     parser.add_argument('--lr', default=0.01, type=float,
                         help='learning rate (absolute lr)')
+    parser.add_argument('--no_schedule', default=False, action="store_true")
     
     parser.add_argument('--weight_decay', default=0.0001, type=float, 
                         help='weight decay (default: 0.05)')
     
     # Dataset parameters
-    parser.add_argument('--data_path', default='./dataset/mnist_polygon_train_10k.npz', type=str,
-                        help='dataset path')
+    parser.add_argument('--train_data', default='./dataset/mnist_polygon_train_10k.npz', type=str,
+                        help='training data path')
+    parser.add_argument('--eval_data', default="./dataset/mnist_polygon_test_2k.npz", type=str,
+                        help='if eval_data is given, evaluate after training')
     
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing, only if cuda is availale')
@@ -52,124 +68,84 @@ def get_args_parser():
     return parser
 
 
-def get_finetune_dataset_mnist(file, dataset_size=None, train=True, max_points=64, save_path=None):
-    """
-    Get pretrain dataset, a dataset of random polygons
-
-    Args:
-        file (str): a numpy zip file end with '.npz'
-        dataset_size (int): if file is not specified, this is used for polygon generation.
-        train (bool): if the dataset for training, False for testset.
-        max_points: if file is not specified, this is used for polygon generation.
-        save_path: save vecterized dataset, this can save time for loading dataset next time.
-
-    """
-    """
-    Get pretrain dataset, a dataset of random polygons
-
-    Args:
-        file (str): a numpy zip file end with '.npz'
-        dataset_size (int): if file is not specified, this is used for polygon generation.
-        train (bool): if the dataset for training, False for testset.
-        max_points: if file is not specified, this is used for polygon generation.
-        save_path: save vecterized dataset, this can save time for loading dataset next time.
-
-    """
-    if ".npz" in file:
-        loaded = np.load(file)
-        if train:
-            train_tokens, train_labels = loaded["train_tokens"], loaded["train_labels"]
-            val_tokens, val_labels = loaded["val_tokens"], loaded["val_labels"]
-
-            train_tokens = torch.tensor(train_tokens, dtype=torch.float32)
-            train_labels = torch.tensor(train_labels, dtype=torch.long)
-            val_tokens = torch.tensor(val_tokens, dtype=torch.float32)
-            val_labels = torch.tensor(val_labels, dtype=torch.long)
-
-            return train_tokens, train_labels, val_tokens, val_labels
-
-        else:
-            test_tokens, test_labels = loaded["test_tokens"], loaded["test_labels"]
-
-            test_tokens = torch.tensor(test_tokens, dtype=torch.float32)
-            test_labels = torch.tensor(test_labels, dtype=torch.long)
-
-            return test_tokens, test_labels
-
-
-    elif ".csv" in file:
-        if train:
-            train_tokens, train_labels, train_mask, val_tokens, val_labels, val_mask = prepare_dataset_mnist(file=file,
-                                                                                                    with_mask=False,
-                                                                                                    split_ratio=0.2,
-                                                                                                    dataset_size=dataset_size,
-                                                                                                    max_seq_len=max_points,
-                                                                                                    train=train)
-            save_name = file.replace(".csv", f"_subsize{dataset_size}.npz") if dataset_size \
-                        else file.replace(".csv", ".npz")
-            np.savez(save_name, train_tokens=train_tokens, train_labels=train_labels, val_tokens=val_tokens, val_labels=val_labels)
-
-            return train_tokens, train_labels, val_tokens, val_labels
-        
-        else:
-            test_tokens, test_labels, test_mask = prepare_dataset_mnist(file=file,
-                                                                with_mask=False,
-                                                                max_seq_len=64,
-                                                                dataset_size=None,
-                                                                train=train)
-            save_name = file.replace(".csv", f"_subsize{dataset_size}.npz") if dataset_size \
-                        else file.replace(".csv", ".npz")
-            np.savez(save_name, test_tokens=test_tokens, test_labels=test_labels)
-
-            return test_tokens, test_labels
-
-
 def main(args):
     args.device = "cuda" if torch.cuda.is_available() else "cpu"
     device = torch.device(args.device)
 
-    # # start a new wandb run to track this script
-    # wandb.init(
-    #     # set the wandb project where this run will be logged
-    #     project="Emb4Spa",
-    #     # entity="kangsive",
-    #     # track hyperparameters and run metadata
-    #     config=args
-    # )
+    if args.fine_tune:
+        model_name = f"pot_fine_tune_bs{args.batch_size}_epoch{args.epochs}"
+    else:
+        model_name = f"pot_bs{args.batch_size}_epoch{args.epochs}"
+
+    if not args.no_wandb and args.group_name == '':
+        args.group_name = model_name
 
     if args.device == "cpu":
-        print("Using cpu since cuda is not available")
+        print("### Using cpu since cuda is not available ###")
 
-    # model_name = f"pot_finetune_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
-    model_name = "fine_tune_pot"
-
-    train_tokens, train_labels, val_tokens, val_labels  = get_finetune_dataset_mnist(args.data_path, dataset_size=None, train=True)
-    train_loader= DataLoader(TensorDataset(train_tokens, train_labels), batch_size=args.batch_size, shuffle=True)
-
+    train_tokens, train_labels, val_tokens, val_labels  = get_finetune_dataset_mnist(args.train_data, dataset_size=None, train=True)
+    test_tokens, test_labels = get_finetune_dataset_mnist(file=args.eval_data, train=False)
+    
     num_class= train_labels.unique().shape[0]
 
+    best_model = None
+    best_acc = 0
+    test_accs = []
+    for run in range(1, args.runs+1):
+        if not args.no_wandb:
+            wandb.init(
+                mode="online" if not args.no_wandb else "disabled",
+                project="Emb4Spa",
+                entity="kangsive",
+                group=args.group_name,
+                config=args
+            )
+            wandb.run.name = f"run_{run}"
+
+        model, test_acc = train_and_test(args,
+                                        train_tokens, train_labels,
+                                        val_tokens, val_labels, 
+                                        test_tokens, test_labels,
+                                        num_class,
+                                        device)
+
+        if not args.no_wandb:
+            wandb.log({"test acc": test_acc})
+            wandb.finish()
+
+        if test_acc > best_acc:
+            best_model = model
+            best_acc = test_acc
+        
+        test_accs.append(test_acc)
+        print(f"Model: {model_name}, Run: {run}, Test Acc: {test_acc}")
+
+    print(f"Model: {model_name}, Avg Test Acc: {sum(test_accs)/len(test_accs)}")
+    torch.save(best_model.state_dict(), f"./weights/{model_name}.pth")
+
+
+def train_and_test(args, train_tokens, train_labels, val_tokens, val_labels, test_tokens, test_labels, num_class, device):
+
     model = Pot(fea_dim=args.fea_dim, d_model=36, ffn_dim=args.ffn_dim, dropout=args.dropout,
-                max_seq_len=args.max_seq_len, num_class=num_class).to(device)
+                max_seq_len=args.max_seq_len, num_class=num_class, num_layers=args.num_layers).to(device)
     
-    # Load pre-trained weights
-    pretrain_state_dict = torch.load(args.pretrain_model, map_location=torch.device('cpu'))
-    pot_state_dict = model.state_dict()
+    if args.fine_tune:
+        # Load pre-trained weights
+        pretrain_state_dict = torch.load(args.pretrain_model, map_location=device)
+        pot_state_dict = model.state_dict()
 
-    for name, param in pretrain_state_dict.items():
-        # Create a new state_dict for `pot` based on compatible keys from `potae`
-        if name in pot_state_dict and pot_state_dict[name].size() == param.size():
-            pot_state_dict[name].copy_(param) 
+        for name, param in pretrain_state_dict.items():
+            # Create a new state_dict for `pot` based on compatible keys from `potae`
+            if name in pot_state_dict and pot_state_dict[name].size() == param.size():
+                pot_state_dict[name].copy_(param) 
 
-    model.load_state_dict(pot_state_dict, strict=False)
+        model.load_state_dict(pot_state_dict, strict=False)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=args.weight_decay)
-
-    # Refer to https://chat.openai.com/share/8e4cf272-4987-480d-99e4-8f97a43eeb4b
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
-    # scheduler = linear_warmup_then_exp_decay(optimizer, args.lr, 3, 100)
-
     loss_func = nn.CrossEntropyLoss()
+    early_stopper = EarlyStopper(patience=20, min_delta=0)
+
+    train_loader = DataLoader(TensorDataset(train_tokens, train_labels), batch_size=args.batch_size, shuffle=True)
 
     for epoch in range(args.epochs):
         model.train()
@@ -198,19 +174,29 @@ def main(args):
             val_correct = (val_predicted == val_labels).sum().item()
             val_acc = val_correct / val_tokens.shape[0]
 
-        current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
+        if not args.no_schedule:
+            current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 0, args.epochs)
+        else:
+            current_lr = args.lr
         
         print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}, Lr: {current_lr}")
 
-        # wandb.log({
-        #     "training loss": train_loss,
-        #     "val loss": val_loss
-        # },
-        # step = epoch+1)
+        if args.early_stop:
+            if early_stopper.early_stop(val_loss):
+                print("Early Stop")
+                break
+        
+        if not args.no_wandb:
+            wandb.log({
+                "training loss": train_loss,
+                "val loss": val_loss
+            },
+            step = epoch+1)
 
-    torch.save(model.state_dict(), f"./weights/{model_name}.pth")
-    # wandb.log_model(path=f"./weights/{model_name}.pth", name=model_name)
-    # wandb.finish()
+    test_tokens, test_labels = test_tokens.to(device), test_labels.to(device)
+    test_acc = downstream_evaluate(model, test_tokens, test_labels)
+    return model, test_acc
+
 
 
 if __name__ == "__main__":

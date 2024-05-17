@@ -6,14 +6,15 @@ import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 
-from utils.prepare_dataset import prepare_dataset_mnist
 from torch.utils.data import TensorDataset, DataLoader
 
 from pot import Pot
-from utils.lars import LARS
 
 from utils.lr_schedule import adjust_learning_rate
-from main_finetune import get_finetune_dataset_mnist
+from utils.prepare_dataset import get_finetune_dataset_mnist
+from evaluate import downstream_evaluate
+
+import sys
 
 
 
@@ -146,10 +147,20 @@ def main(args):
         # },
         # step = epoch+1)
 
+    # Load test data
+    test_tokens, test_labels = get_finetune_dataset_mnist(file=args.eval_data, train=False)
+    test_acc = downstream_evaluate(model, test_tokens, test_labels)
+    print(f"Model: {model_name}, Test Acc: {test_acc}")
+
+    # wandb.log({"test acc": test_acc})
+
     torch.save(model.state_dict(), f"./weights/{model_name}.pth")
     # wandb.log_model(path=f"./weights/{model_name}.pth", name=model_name)
     # wandb.finish()
 
+    sys.stdout.write(f"{test_acc}")
+    sys.stdout.flush()
+    sys.exit(test_acc)
 
 if __name__ == "__main__":
     args = get_args_parser()

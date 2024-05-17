@@ -21,6 +21,7 @@ def get_args_parser():
                         help='training batch size, (default: 256)')
     parser.add_argument('--epochs', default=100, type=int,
                         help='the number of training iteration over the whole dataset (default: 50)')
+    parser.add_argument('--no_wandb', default=False, action="store_true")
     
     # Model parameters
     parser.add_argument('--fea_dim', default=7, type=int,
@@ -31,6 +32,11 @@ def get_args_parser():
                         help='dropout ratio during training (default: 0.1)')
     parser.add_argument('--max_seq_len', default=64, type=int,
                         help='the maximum sequence length of input tokens (default: 64)')
+    parser.add_argument('--no_schedule', default=False, action="store_true")
+    parser.add_argument('--weights', default="", type=str,
+                        help='load weights instead of random initialize')
+    parser.add_argument('--num_layers', default=1, type=int,
+                        help='number of transfomer encoder layers of each hierachical stage')
     
     # Optimizer parameters
     parser.add_argument('--lr', default=0.004, type=float,
@@ -70,8 +76,9 @@ def get_pretrain_dataset(file=None, dataset_size=200000, max_points=64):
         np.savez("dataset/synthetic_simple_200k.npz", geoms=geoms, wkts=wkts)
     else:
         loaded = np.load(file)
-        train_tokens = loaded["geoms"]
-        wkts = loaded["wkts"]
+        # train_tokens = loaded["geoms"]
+        train_tokens = loaded["train_tokens"]
+        # wkts = loaded["wkts"]
 
         train_tokens = torch.tensor(train_tokens, dtype=torch.float32)
         return train_tokens
@@ -83,6 +90,7 @@ def main(args):
 
     # start a new wandb run to track this script
     wandb.init(
+        mode="online" if not args.no_wandb else "disabled",
         # set the wandb project where this run will be logged
         project="Emb4Spa",
         # entity="kangsive",
@@ -93,11 +101,14 @@ def main(args):
     if args.device == "cpu":
         print("Using cpu since cuda is not available")
 
-    model_name = f"potae_pretrain_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
+    model_name = f"potae_3layers_2_pretrain_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
 
     train_tokens = get_pretrain_dataset(args.data_path)
 
-    model = PoTAE(fea_dim=args.fea_dim, d_model=36, ffn_dim=args.ffn_dim, dropout=args.dropout, max_seq_len=args.max_seq_len).to(device)
+    model = PoTAE(fea_dim=args.fea_dim, d_model=36, ffn_dim=args.ffn_dim, dropout=args.dropout,
+                  max_seq_len=args.max_seq_len, num_layers=args.num_layers).to(device)
+    if args.weights != "":
+        model.load_state_dict(torch.load(args.weights, map_location=device))
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.98), eps=1e-9, weight_decay=args.weight_decay)
 
@@ -117,7 +128,10 @@ def main(args):
 
         train_loss = total_loss/batch_count
 
-        current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 20, args.epochs)
+        if not args.no_schedule:
+            current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 0, args.epochs)
+        else:
+            current_lr = args.lr
 
         print(f"Epoch {epoch+1}, Training Loss: {train_loss}, Lr: {current_lr}")
 

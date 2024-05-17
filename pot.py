@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from copy import deepcopy
 
 
 class PositionalEncoding(nn.Module):
@@ -35,21 +36,21 @@ class Pot(nn.Module):
         dropout: the dropout value.
         max_seq_len: maximum sequence length, for polygon it's the number of points.
     """
-    def __init__(self, fea_dim=7, d_model=36, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=10):
+    def __init__(self, fea_dim=7, d_model=36, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=10, num_layers=1):
         super().__init__()
 
-        self.enc_layer1 = nn.Sequential(nn.TransformerEncoderLayer(d_model=d_model, nhead=4, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True),
+        self.enc_layer1 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=d_model, nhead=d_model//4, dim_feedforward=ffn_dim,
+                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
                                         nn.Linear(d_model, 18),
                                         )   # (,64,36) --> (,64,18)
         
-        self.enc_layer2 = nn.Sequential(nn.TransformerEncoderLayer(d_model=36, nhead=6, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True),
+        self.enc_layer2 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//6, dim_feedforward=ffn_dim,
+                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
                                         nn.Linear(36, 18),
                                         )   # (,32,36) --> (,32,18)
         
-        self.enc_layer3 = nn.Sequential(nn.TransformerEncoderLayer(d_model=36, nhead=9, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True),
+        self.enc_layer3 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//9, dim_feedforward=ffn_dim,
+                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
                                         nn.Flatten(),
                                         nn.Linear(16*36, 64),
                                         )   # (,16,36) --> (,32*36) --> (,64)
@@ -83,5 +84,19 @@ class Pot(nn.Module):
         x = self.head_drop(x)
         x = self.head(x)
 
+        return x
+    
+class Classifier(nn.Module):
+    def __init__(self, input_size, dense_size, num_classes, dropout):
+        super().__init__()
+        self.dense1 = nn.Linear(input_size, dense_size)
+        self.dropout = nn.Dropout(dropout)
+        self.relu = nn.ReLU()
+        self.dense2 = nn.Linear(dense_size, num_classes)
+
+    def forward(self, x):
+        x = self.relu(self.dense1(x))
+        x = self.dropout(x)
+        x = self.dense2(x)
         return x
     
