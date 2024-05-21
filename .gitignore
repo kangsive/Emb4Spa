@@ -1,0 +1,5 @@
+wandb
+weights
+dataset
+*.pyc
+output

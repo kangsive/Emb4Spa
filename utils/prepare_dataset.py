@@ -196,23 +196,36 @@ def get_trainable_dataset_with_len_filter(wkts, types, max_seq_len, train=True):
     labels = torch.tensor(labels, dtype=torch.long)
 
 
-def prepare_dataset_fixedsize(file="dataset/buildings_train_v8.npz", batch_size=32, dataset_size=None, geom_scale=None):
+def prepare_dataset_fixedsize(file="dataset/buildings_train_v8.npz", dataset_size=None, train=True):
     loaded = np.load(file)
     fixed_size_geoms = loaded['fixed_size_geoms']
     geom_types = loaded['building_type']
+
+    # fixed_size_geoms = loaded['train_tokens']
+    # geom_types = loaded['train_labels']    
+
     if dataset_size is not None:
         fixed_size_geoms = fixed_size_geoms[:dataset_size]
         geom_types = geom_types[:dataset_size]
 
-    if "test" in file:
-        return geom_scaler.transform(fixed_size_geoms, geom_scale), geom_types
+    fixed_size_geoms = normalize(fixed_size_geoms)
+    print(fixed_size_geoms.shape)
+
+    if not train:
+        test_tokens = torch.tensor(fixed_size_geoms, dtype=torch.float32)
+        test_labels = torch.tensor(geom_types, dtype=torch.long)
+
+        return test_tokens, test_labels
+    
     else:
-        geom_train, geom_test, label_train, label_test = train_test_split(fixed_size_geoms, geom_types, test_size=0.2, random_state=42)
-        # Normalize
-        geom_scale = geom_scaler.scale(geom_train)
-        geom_train = geom_scaler.transform(geom_train, geom_scale)
-        geom_test = geom_scaler.transform(geom_test, geom_scale)  # re-use variance from training
-        return geom_train, geom_test, label_train, label_test, geom_scale
+        geom_train, geom_val, label_train, label_val = train_test_split(fixed_size_geoms, geom_types, test_size=0.2, random_state=42)
+
+        train_tokens = torch.tensor(geom_train, dtype=torch.float32)
+        train_labels = torch.tensor(label_train, dtype=torch.long)
+        val_tokens = torch.tensor(geom_val, dtype=torch.float32)
+        val_labels = torch.tensor(label_val, dtype=torch.long)
+
+        return train_tokens, train_labels, val_tokens, val_labels
 
 
 def prepare_dataset_archaeology(max_seq_len=64, batch_size=32, dataset_size=1000):
