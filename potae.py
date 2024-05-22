@@ -24,6 +24,20 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         return x + self.pe[:, :x.size(1)]
     
+class HalfSqueeze(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def forward(self, x):
+        return x.view(x.size(0), x.size(1)//2, -1) 
+
+class HalfExpend(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, x):
+        return x.view(x.size(0), x.size(1)*2, -1)
+    
 
 class PoTAE(nn.Module):
     """
@@ -36,82 +50,63 @@ class PoTAE(nn.Module):
         dropout: the dropout value.
         max_seq_len: maximum sequence length, for polygon it's the number of points.
     """
-    def __init__(self, fea_dim=7, d_model=36, ffn_dim=32, dropout=0.5, max_seq_len=64, num_layers=1):
+    def __init__(self, fea_dim=7, d_model=36, num_heads=4, hidden_dim=64, ffn_dim=64, layer_repeat=1, dropout=0.5, max_seq_len=64):
         super().__init__()
 
-        self.enc_layer1 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=d_model, nhead=d_model//4, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
-                                        nn.Linear(d_model, 18),
-                                        )   # (,64,36) --> (,64,18)
-        
-        self.enc_layer2 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//6, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
-                                        nn.Linear(36, 18),
-                                        )   # (,32,36) --> (,32,18)
-        
-        self.enc_layer3 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//9, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
-                                        nn.Flatten(),
-                                        nn.Linear(16*36, 64),
-                                        )   # (,16,36) --> (,32*36) --> (,64)
+        num_layers = int(math.log(max_seq_len))
+        end = max_seq_len // (2**(num_layers-1))
 
+        self.transformer_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim, 
+                                                            dropout=dropout, batch_first=True)
+
+        self.enc_layer_head = nn.Sequential(*[deepcopy(self.transformer_layer) for _ in range(layer_repeat)],
+                                            nn.Linear(d_model, d_model//2),
+                                            HalfSqueeze())
         
-        self.dec_layer1 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//9, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)])
+        self.enc_layer_tail = nn.Sequential(*[deepcopy(self.transformer_layer) for _ in range(layer_repeat)],
+                                            nn.Flatten(),
+                                            nn.Linear(end * d_model, hidden_dim),
+                                            nn.LayerNorm(hidden_dim))
+        
+        
+        self.dec_layer_head = nn.Sequential(nn.Linear(hidden_dim, end * d_model),
+                                            nn.Unflatten(1, (end, d_model)),
+                                            *[deepcopy(self.transformer_layer) for _ in range(layer_repeat)])
                                         
+        self.dec_layer_tail = nn.Sequential(HalfExpend(),
+                                            nn.Linear(d_model//2, d_model),
+                                            nn.LayerNorm(d_model),
+                                            *[deepcopy(self.transformer_layer) for _ in range(layer_repeat)])
         
-        self.dec_layer2 = nn.Sequential(nn.Linear(18, 36),
-                                        *[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//6, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)])
-                                            # (,32,18) --> (32,36)
         
-        self.dec_layer3 = nn.Sequential(nn.Linear(18, d_model),
-                                        *[deepcopy(nn.TransformerEncoderLayer(d_model=d_model, nhead=d_model//4, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)])
-                                            # (,64,18) --> (64,36)
-
-        self.enc_layers = [self.enc_layer1, self.enc_layer2, self.enc_layer3]
-        self.dec_layers = [self.dec_layer1, self.dec_layer2, self.dec_layer3]
+        self.enc_layers = nn.ModuleList([deepcopy(self.enc_layer_head) for _ in range(num_layers-1)]).append(self.enc_layer_tail)
+        self.dec_layers = nn.ModuleList(self.dec_layer_head).extend([deepcopy(self.dec_layer_tail) for _ in range(num_layers-1)])
 
         
         self.pos_emb = PositionalEncoding(d_model, max_seq_len)
-        self.recover = nn.Linear(64, 16*36)
         self.project = nn.Linear(fea_dim, d_model)
         self.remap = nn.Linear(d_model, fea_dim)
 
         self.mse_loss_func = F.mse_loss
         self.meta_loss_func = nn.CrossEntropyLoss()
-
     
-    def Repeat_Block(num_layers, module):
-        module_list = [deepcopy(module) for _ in range(num_layers)]
-        nn.ModuleList(module_list)
-        return module_list
-    
-
     def forward(self, x):
-        # Project to increase feature dimension for multi-head attension (,64,7) --> (,64,36)
+        # Project to increase feature dimension for multi-head attension
         input = self.project(x)
+        # Add positional embeddings
         input = self.pos_emb(input)
 
+        # Encoding
         hidden = input
-        for i, enc_layer in enumerate(self.enc_layers):
+        for enc_layer in self.enc_layers:
             hidden = enc_layer(hidden)
-            if i != len(self.enc_layers)-1:
-                # Reshape: decrese seq_len and increase fea dim;
-                # layer1: (,64,18) --> (,32,36), layer2: (,32,18) --> (,16,36)
-                hidden = hidden.view(hidden.size(0), hidden.size(1)//2, -1) 
-
-        # Recover 1D vector (embedding) to 2D feature map, (,64) --> (,16*36) --> (,16,36)
-        decoded = self.recover(hidden).reshape(input.size(0), 16, 36)
-        for i, dec_layer in enumerate(self.dec_layers):
-            if i != 0:
-                # Reshape: increse seq_len and decrease fea dim;
-                # layer2: (,16,36) --> (,32,18), layer2: (,32,36) --> (,64,18)
-                decoded = decoded.view(decoded.size(0), decoded.size(1)*2, -1)
-            decoded = dec_layer(decoded)
         
-        # Remap feature dimension back to original (,64,36) --> (,64,7)
+        # Decoding
+        decoded = hidden
+        for dec_layer in self.dec_layers:
+            decoded = dec_layer(decoded)
+
+        # Remap to original feature dimension
         decoded = self.remap(decoded)
 
         # Separate outputs for calculating loss

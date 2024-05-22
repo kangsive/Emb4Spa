@@ -5,9 +5,8 @@ import argparse
 import numpy as np
 import torch.optim as optim
 
-from pathlib import Path
 from potae import PoTAE
-from utils.generate_polygon import generate_polygon_and_vectorize
+from utils.generate_polygon import generate_polygons_and_vectorize
 from utils.lr_schedule import adjust_learning_rate
 
 
@@ -26,6 +25,14 @@ def get_args_parser():
     # Model parameters
     parser.add_argument('--fea_dim', default=7, type=int,
                         help='the number of features, or the feature dimension, this must match the dataset')
+    parser.add_argument('--d_model', default=36, type=int,
+                        help='model dimension in transformer layers')
+    parser.add_argument('--num_heads', default=4, type=int,
+                        help='the number of heads in transformer layers')
+    parser.add_argument('--hidden_dim', default=64, type=int,
+                        help='hidden dimension, or embedding size')
+    parser.add_argument('--layer_repeat', default=1, type=int,
+                        help='the repeated number of transformer encoder layer at each hierachical stage')
     parser.add_argument('--ffn_dim', default=32, type=int,
                         help='the feed-forward network dimension in transformer layers (default: 32)')
     parser.add_argument('--dropout', default=0.1, type=float,
@@ -35,8 +42,6 @@ def get_args_parser():
     parser.add_argument('--no_schedule', default=False, action="store_true")
     parser.add_argument('--weights', default="", type=str,
                         help='load weights instead of random initialize')
-    parser.add_argument('--num_layers', default=1, type=int,
-                        help='number of transfomer encoder layers of each hierachical stage')
     
     # Optimizer parameters
     parser.add_argument('--lr', default=0.004, type=float,
@@ -56,7 +61,7 @@ def get_args_parser():
     return parser
 
 
-def get_pretrain_dataset(file=None, dataset_size=200000, max_points=64):
+def get_pretrain_dataset(file='', dataset_size=200000, max_points=64):
     """
     Get pretrain dataset, a dataset of random polygons
 
@@ -69,15 +74,16 @@ def get_pretrain_dataset(file=None, dataset_size=200000, max_points=64):
         train_tokens: a torch tensor contains all vectorized polygon shapes.
 
     """
-    if file is None:
+    if file == '':
         print("Warning: no dataset file is specified, will genearte a random dataset of size 200k, \
                make sure your device have enough space and it will cost about 11 minutes...")
-        geoms, wkts = generate_polygon_and_vectorize(num_poly=dataset_size, max_points=max_points)
-        np.savez("dataset/synthetic_simple_200k.npz", geoms=geoms, wkts=wkts)
+        geoms, wkts = generate_polygons_and_vectorize(num_poly=dataset_size, max_points=max_points)
+        np.savez(f"dataset/synthetic_complex_{dataset_size}.npz", train_tokens=geoms, wkts=wkts)
+        return torch.tensor(geoms, dtype=torch.float32)
     else:
         loaded = np.load(file)
-        # train_tokens = loaded["geoms"]
         train_tokens = loaded["train_tokens"]
+        # train_tokens = loaded["test_tokens"]
         # wkts = loaded["wkts"]
 
         train_tokens = torch.tensor(train_tokens, dtype=torch.float32)
@@ -101,12 +107,13 @@ def main(args):
     if args.device == "cpu":
         print("Using cpu since cuda is not available")
 
-    model_name = f"potae_3layers_2_pretrain_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
+    model_name = f"potae_6layers _dmodel288_pretrain_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
 
-    train_tokens = get_pretrain_dataset(args.data_path)
+    train_tokens = get_pretrain_dataset(args.data_path, dataset_size=10000)
 
-    model = PoTAE(fea_dim=args.fea_dim, d_model=36, ffn_dim=args.ffn_dim, dropout=args.dropout,
-                  max_seq_len=args.max_seq_len, num_layers=args.num_layers).to(device)
+    model = PoTAE(fea_dim=args.fea_dim, d_model=args.d_model, num_heads=args.num_heads, hidden_dim=args.hidden_dim,
+                  ffn_dim=args.ffn_dim, layer_repeat=args.layer_repeat, dropout=args.dropout, max_seq_len=args.max_seq_len).to(device)
+    
     if args.weights != "":
         model.load_state_dict(torch.load(args.weights, map_location=device))
 
@@ -145,7 +152,6 @@ def main(args):
         #     f.write(f'Epoch: {epoch+1}, Training Loss: {train_loss}\n')
 
     torch.save(model.state_dict(), f"./weights/{model_name}.pth")
-    wandb.log_model(path=f"./weights/{model_name}.pth", name=model_name)
     wandb.finish()
 
 

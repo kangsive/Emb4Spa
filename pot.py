@@ -36,27 +36,26 @@ class Pot(nn.Module):
         dropout: the dropout value.
         max_seq_len: maximum sequence length, for polygon it's the number of points.
     """
-    def __init__(self, fea_dim=7, d_model=36, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=10, num_layers=1):
+    def __init__(self, fea_dim=7, d_model=512, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=10, num_layers=1):
         super().__init__()
 
-        self.enc_layer1 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=d_model, nhead=d_model//4, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
-                                        nn.Linear(d_model, 18),
-                                        )   # (,64,36) --> (,64,18)
+        num_layers = int(math.log(max_seq_len))
+        num_heads = 12
+        hidden_dim = 128
+        end = max_seq_len // (2*num_layers)
         
-        self.enc_layer2 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//6, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
-                                        nn.Linear(36, 18),
-                                        )   # (,32,36) --> (,32,18)
+
+        self.enc_layer_head = nn.Sequential(nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim,
+                                                                       dropout=dropout, batch_first=True),
+                                            nn.Linear(d_model, d_model//2))
         
-        self.enc_layer3 = nn.Sequential(*[deepcopy(nn.TransformerEncoderLayer(d_model=36, nhead=d_model//9, dim_feedforward=ffn_dim,
-                                                                    dropout=dropout, batch_first=True)) for _ in range(num_layers)],
-                                        nn.Flatten(),
-                                        nn.Linear(16*36, 64),
-                                        )   # (,16,36) --> (,32*36) --> (,64)
+        self.enc_layer_tail = nn.Sequential(nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim,
+                                                                       dropout=dropout, batch_first=True),
+                                            nn.Flatten(),
+                                            nn.Linear(end * d_model, hidden_dim))
 
 
-        self.enc_layers = [self.enc_layer1, self.enc_layer2, self.enc_layer3]
+        self.enc_layers = [deepcopy(self.enc_layer_head) for _ in range(num_layers-1)] + [self.enc_layer_tail]
 
 
         
