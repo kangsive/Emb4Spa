@@ -56,14 +56,15 @@ class PoTAE(nn.Module):
         num_layers = int(math.log(max_seq_len))
         end = max_seq_len // (2**(num_layers-1))
 
-        self.transformer_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim, 
-                                                            dropout=dropout, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim, 
+                                                            dropout=dropout, batch_first=True),
+                                                            num_layers=layer_repeat)
 
-        self.enc_layer_head = nn.Sequential(*[deepcopy(self.transformer_layer) for _ in range(layer_repeat)],
+        self.enc_layer_head = nn.Sequential(self.transformer_encoder,
                                             nn.Linear(d_model, d_model//2),
                                             HalfSqueeze())
         
-        self.enc_layer_tail = nn.Sequential(*[deepcopy(self.transformer_layer) for _ in range(layer_repeat)],
+        self.enc_layer_tail = nn.Sequential(deepcopy(self.transformer_encoder),
                                             nn.Flatten(),
                                             nn.Linear(end * d_model, hidden_dim),
                                             nn.LayerNorm(hidden_dim))
@@ -71,12 +72,12 @@ class PoTAE(nn.Module):
         
         self.dec_layer_head = nn.Sequential(nn.Linear(hidden_dim, end * d_model),
                                             nn.Unflatten(1, (end, d_model)),
-                                            *[deepcopy(self.transformer_layer) for _ in range(layer_repeat)])
+                                            deepcopy(self.transformer_encoder))
                                         
         self.dec_layer_tail = nn.Sequential(HalfExpend(),
                                             nn.Linear(d_model//2, d_model),
                                             nn.LayerNorm(d_model),
-                                            *[deepcopy(self.transformer_layer) for _ in range(layer_repeat)])
+                                            deepcopy(self.transformer_encoder))
         
         
         self.enc_layers = nn.ModuleList([deepcopy(self.enc_layer_head) for _ in range(num_layers-1)]).append(self.enc_layer_tail)
