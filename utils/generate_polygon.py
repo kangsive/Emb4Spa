@@ -1,8 +1,11 @@
 import random
 import numpy as np
+from tqdm import tqdm
 from shapely import Polygon, MultiPolygon, affinity
 
 from vectorizer import vectorize_wkt
+
+
 
 from polygenerator import (
     random_polygon,
@@ -68,10 +71,13 @@ def generate_polygon():
 
                 elif num_holes == 2:
                     # seperate holes to make sure they are not overlap
-                    while holes[0].intersects(holes[1]):
-                        shit_x, shit_y = random.random(), random.random()
-                        holes[1] = affinity.translate(holes[1], shit_x, shit_y)
-                    hole_group = MultiPolygon(holes)
+                    try:
+                        while holes[0].intersects(holes[1]):
+                            shit_x, shit_y = random.random(), random.random()
+                            holes[1] = affinity.translate(holes[1], shit_x, shit_y)
+                        hole_group = MultiPolygon(holes)
+                    except:
+                        continue
 
                 else:
                     raise(NotImplementedError)
@@ -110,7 +116,7 @@ def generate_polygon():
 def generate_polygons(num_poly, wkt=True):
     polygons = []
 
-    for i in range(num_poly):
+    for i in tqdm(range(num_poly)):
         poly = generate_polygon()
         polygons.append(poly)
 
@@ -121,7 +127,7 @@ def generate_polygons_and_vectorize(num_poly, max_points=64):
     geoms = []
     wkts = []
 
-    for i in range(num_poly):
+    for i in tqdm(range(num_poly)):
         poly = generate_polygon()
         poly_wkt = poly.wkt
         geom = vectorize_wkt(poly_wkt, max_points=max_points, fixed_size=True, simplify=True)
