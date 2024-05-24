@@ -105,7 +105,7 @@ def generate_polygon():
                         continue
 
         if not poly.is_valid:
-            print("invalid poly")
+            # print("invalid poly")
             continue
         else:
             valid_poly = True

@@ -35,6 +35,14 @@ def get_args_parser():
     # Model parameters
     parser.add_argument('--fea_dim', default=7, type=int,
                         help='the number of features, or the feature dimension, this must match the dataset')
+    parser.add_argument('--d_model', default=36, type=int,
+                        help='model dimension in transformer layers')
+    parser.add_argument('--num_heads', default=4, type=int,
+                        help='the number of heads in transformer layers')
+    parser.add_argument('--hidden_dim', default=64, type=int,
+                        help='hidden dimension, or embedding size')
+    parser.add_argument('--layer_repeat', default=1, type=int,
+                        help='the repeated number of transformer encoder layer at each hierachical stage')
     parser.add_argument('--ffn_dim', default=32, type=int,
                         help='the feed-forward network dimension in transformer layers (default: 32)')
     parser.add_argument('--dropout', default=0.1, type=float,
@@ -45,8 +53,6 @@ def get_args_parser():
                         help='path to pre-trained model (stat_dict)')
     parser.add_argument('--early_stop', default=False, action="store_true",
                         help='apply early stop')
-    parser.add_argument('--num_layers', default=1, type=int,
-                        help='number of transfomer encoder layers of each hierachical stage')
     
     # Optimizer parameters
     parser.add_argument('--lr', default=0.01, type=float,
@@ -126,8 +132,8 @@ def main(args):
 
 def train_and_test(args, train_tokens, train_labels, val_tokens, val_labels, test_tokens, test_labels, num_class, device):
 
-    model = Pot(fea_dim=args.fea_dim, d_model=36, ffn_dim=args.ffn_dim, dropout=args.dropout,
-                max_seq_len=args.max_seq_len, num_class=num_class, num_layers=args.num_layers).to(device)
+    model = Pot(fea_dim=args.fea_dim, d_model=args.d_model, num_heads=args.num_heads, hidden_dim=args.hidden_dim,
+                  ffn_dim=args.ffn_dim, layer_repeat=args.layer_repeat, dropout=args.dropout, max_seq_len=args.max_seq_len).to(device)
     
     if args.fine_tune:
         # Load pre-trained weights
@@ -136,8 +142,14 @@ def train_and_test(args, train_tokens, train_labels, val_tokens, val_labels, tes
 
         for name, param in pretrain_state_dict.items():
             # Create a new state_dict for `pot` based on compatible keys from `potae`
-            if name in pot_state_dict and pot_state_dict[name].size() == param.size():
-                pot_state_dict[name].copy_(param) 
+            if name in pot_state_dict:
+                if pot_state_dict[name].size() == param.size():
+                    pot_state_dict[name].copy_(param)
+                else:
+                    print(f"key {name} have unmatch size {param.size()}")
+            else:
+                # print(f"key {name} missing")
+                pass
 
         model.load_state_dict(pot_state_dict, strict=False)
 

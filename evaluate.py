@@ -95,9 +95,8 @@ def main():
     test_tokens, test_labels = get_finetune_dataset_mnist(file=test_dataset, train=False)
 
     # Evaluate pre-training performance
-    pre_train_weights = "./weights/potae_pretrain_bs256_epoch100_runname-iconic-durian-30.pth"
-    # pre_train_weights = "./weights/potae_pretrain_bs256_epoch100_runname-logical-bush-68.pth"
-    pre_trained_model = PoTAE()
+    pre_train_weights = "weights/potae_repeat2_lr0.0001_dmodel384_bs512_epoch200_runname-mild-darkness-78.pth"
+    pre_trained_model = PoTAE(fea_dim=7, d_model=384, num_heads=6, hidden_dim=64, ffn_dim=1024, layer_repeat=2, dropout=0.5, max_seq_len=64)
     pre_trained_model.load_state_dict(torch.load(pre_train_weights, map_location=torch.device('cpu')))
 
     pre_trained_model.eval()

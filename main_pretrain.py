@@ -109,7 +109,7 @@ def main(args):
 
     model_name = f"potae_6layers _dmodel288_pretrain_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
 
-    train_tokens = get_pretrain_dataset(args.data_path, dataset_size=10000)
+    train_tokens = get_pretrain_dataset(args.data_path, dataset_size=20000)
 
     model = PoTAE(fea_dim=args.fea_dim, d_model=args.d_model, num_heads=args.num_heads, hidden_dim=args.hidden_dim,
                   ffn_dim=args.ffn_dim, layer_repeat=args.layer_repeat, dropout=args.dropout, max_seq_len=args.max_seq_len).to(device)

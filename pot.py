@@ -24,7 +24,21 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         return x + self.pe[:, :x.size(1)]
     
+class HalfSqueeze(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def forward(self, x):
+        return x.view(x.size(0), x.size(1)//2, -1) 
 
+class HalfExpend(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, x):
+        return x.view(x.size(0), x.size(1)*2, -1)
+    
+    
 class Pot(nn.Module):
     """
     Polygon Transformer AutoEncoder, a hierarchical transformer-based autoencoder.
@@ -36,35 +50,34 @@ class Pot(nn.Module):
         dropout: the dropout value.
         max_seq_len: maximum sequence length, for polygon it's the number of points.
     """
-    def __init__(self, fea_dim=7, d_model=512, ffn_dim=32, dropout=0.5, max_seq_len=64, num_class=10, num_layers=1):
+    def __init__(self, fea_dim=7, d_model=36, num_heads=4, hidden_dim=64, ffn_dim=64, layer_repeat=1, num_classes=10, dropout=0.5, max_seq_len=64):
         super().__init__()
 
         num_layers = int(math.log(max_seq_len))
-        num_heads = 12
-        hidden_dim = 128
-        end = max_seq_len // (2*num_layers)
-        
+        end = max_seq_len // (2**(num_layers-1))
 
-        self.enc_layer_head = nn.Sequential(nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim,
-                                                                       dropout=dropout, batch_first=True),
-                                            nn.Linear(d_model, d_model//2))
+        self.transformer_encoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim, 
+                                                            dropout=dropout, batch_first=True),
+                                                            num_layers=layer_repeat)
+
+        self.enc_layer_head = nn.Sequential(self.transformer_encoder,
+                                            nn.Linear(d_model, d_model//2),
+                                            HalfSqueeze())
         
-        self.enc_layer_tail = nn.Sequential(nn.TransformerEncoderLayer(d_model=d_model, nhead=num_heads, dim_feedforward=ffn_dim,
-                                                                       dropout=dropout, batch_first=True),
+        self.enc_layer_tail = nn.Sequential(deepcopy(self.transformer_encoder),
                                             nn.Flatten(),
-                                            nn.Linear(end * d_model, hidden_dim))
-
-
-        self.enc_layers = [deepcopy(self.enc_layer_head) for _ in range(num_layers-1)] + [self.enc_layer_tail]
-
+                                            nn.Linear(end * d_model, hidden_dim),
+                                            nn.LayerNorm(hidden_dim))
+        
+        
+        self.enc_layers = nn.ModuleList([deepcopy(self.enc_layer_head) for _ in range(num_layers-1)]).append(self.enc_layer_tail)
 
         
         self.pos_emb = PositionalEncoding(d_model, max_seq_len)
         self.project = nn.Linear(fea_dim, d_model)
 
-        self.fc_norm = nn.LayerNorm(64, eps=1e-6)
-        self.head_drop = nn.Dropout(0.1)
-        self.head = nn.Linear(64, num_class)
+        self.head_drop = nn.Dropout(dropout)
+        self.head = nn.Linear(64, num_classes)
 
 
     def forward(self, x):
@@ -72,14 +85,9 @@ class Pot(nn.Module):
         x = self.project(x)
         x = self.pos_emb(x)
 
-        for i, enc_layer in enumerate(self.enc_layers):
+        for enc_layer in self.enc_layers:
             x = enc_layer(x)
-            if i != len(self.enc_layers)-1:
-                # Reshape: decrese seq_len and increase fea dim;
-                # layer1: (,64,18) --> (,32,36), layer2: (,32,18) --> (,16,36)
-                x = x.view(x.size(0), x.size(1)//2, -1) 
-
-        x = self.fc_norm(x)
+            
         x = self.head_drop(x)
         x = self.head(x)
 
