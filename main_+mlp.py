@@ -33,7 +33,7 @@ def get_args_parser():
                         help='group name for wandb runs')
     
     # Model parameters
-    parser.add_argument('--pretrain_model', default="./weights/potae_pretrain_bs256_epoch100_runname-iconic-durian-30.pth", type=str,
+    parser.add_argument('--pretrain_model', default="./weights/potae_repeat2_lr0.0001_dmodel384_bs512_epoch200_runname-mild-darkness-78.pth", type=str,
                         help='path to pre-trained model (stat_dict)')
     parser.add_argument('--no_embedding', default=False, action="store_true",
                         help='if embedding_on, use embeddings from pre-trained model, otherwise use raw input for classification')
@@ -77,7 +77,8 @@ def main(args):
     num_class= train_labels.unique().shape[0]
 
     if not args.no_embedding:
-        emb_model = PoTAE()
+        emb_model = PoTAE(fea_dim=7, d_model=384, num_heads=6, hidden_dim=64,
+                          ffn_dim=1024, layer_repeat=2, dropout=0.1, max_seq_len=64).to(device)
         emb_model.load_state_dict(torch.load(args.pretrain_model, map_location=device))
         emb_model.eval()
         with torch.no_grad():
@@ -161,9 +162,11 @@ def train_and_test(args, train_embeddings, train_labels, val_embeddings, val_lab
             val_acc = val_correct / val_embeddings.shape[0]
 
         if not args.no_schedule:
-            adjust_learning_rate(optimizer, epoch+1, args.lr, 25, args.epochs)
+            current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 25, args.epochs)
+        else:
+            current_lr = args.lr
         
-        print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}")
+        print(f"Epoch {epoch+1}, Train Loss: {train_loss}, Train Acc: {train_acc}, Val Loss: {val_loss}, Val Acc: {val_acc}, Lr: {current_lr}")
 
         if args.early_stop:
             if early_stopper.early_stop(val_loss):
@@ -172,8 +175,11 @@ def train_and_test(args, train_embeddings, train_labels, val_embeddings, val_lab
 
         if not args.no_wandb:
             wandb.log({
-                "training loss": train_loss,
-                "val loss": val_loss
+                "train loss": train_loss,
+                "val loss": val_loss,
+                "train acc": train_acc,
+                "val acc": val_acc,
+                "lr": current_lr,
             },
             step = epoch+1)
 

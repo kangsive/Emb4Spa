@@ -1,0 +1,8 @@
+pytorch
+wandb
+shapely
+polygenerator
+tqdm
+deep-geometry
+scikit-learn
+matplotlib

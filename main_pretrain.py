@@ -107,9 +107,9 @@ def main(args):
     if args.device == "cpu":
         print("Using cpu since cuda is not available")
 
-    model_name = f"potae_6layers _dmodel288_pretrain_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
+    model_name = f"potae_repeat2_lr0.0001_dmodel384_bs{args.batch_size}_epoch{args.epochs}_runname-{wandb.run.name}"
 
-    train_tokens = get_pretrain_dataset(args.data_path, dataset_size=20000)
+    train_tokens = get_pretrain_dataset(args.data_path, dataset_size=200000)
 
     model = PoTAE(fea_dim=args.fea_dim, d_model=args.d_model, num_heads=args.num_heads, hidden_dim=args.hidden_dim,
                   ffn_dim=args.ffn_dim, layer_repeat=args.layer_repeat, dropout=args.dropout, max_seq_len=args.max_seq_len).to(device)
@@ -150,6 +150,9 @@ def main(args):
 
         # with open('training_log.txt', 'a') as f:
         #     f.write(f'Epoch: {epoch+1}, Training Loss: {train_loss}\n')
+
+        if epoch % 10 == 0:
+            torch.save(model.state_dict(), f"./weights/{model_name}.pth")
 
     torch.save(model.state_dict(), f"./weights/{model_name}.pth")
     wandb.finish()

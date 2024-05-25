@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-import plotly.express as px
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 
