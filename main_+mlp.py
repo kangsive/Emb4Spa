@@ -82,9 +82,9 @@ def main(args):
         emb_model.load_state_dict(torch.load(args.pretrain_model, map_location=device))
         emb_model.eval()
         with torch.no_grad():
-            train_embeddings, _, _ = emb_model(train_tokens)
-            val_embeddings, _, _ = emb_model(val_tokens)
-            test_embeddings, _, _ = emb_model(test_tokens)
+            train_embeddings, _, _ = emb_model(train_tokens.to(device))
+            val_embeddings, _, _ = emb_model(val_tokens.to(device))
+            test_embeddings, _, _ = emb_model(test_tokens.to(device))
     else:
         train_embeddings, val_embeddings = train_tokens.view(train_tokens.size(0), -1), val_tokens.view(val_tokens.size(0), -1)
         test_embeddings = test_tokens.view(test_tokens.size(0), -1)
@@ -162,7 +162,7 @@ def train_and_test(args, train_embeddings, train_labels, val_embeddings, val_lab
             val_acc = val_correct / val_embeddings.shape[0]
 
         if not args.no_schedule:
-            current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 25, args.epochs)
+            current_lr = adjust_learning_rate(optimizer, epoch+1, args.lr, 0, args.epochs)
         else:
             current_lr = args.lr
         

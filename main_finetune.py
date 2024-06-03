@@ -22,7 +22,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser('PoT fine tuning', add_help=False)
     parser.add_argument('--batch_size', default=256, type=int,
                         help='training batch size, (default: 256)')
-    parser.add_argument('--epochs', default=150, type=int,
+    parser.add_argument('--epochs', default=50, type=int,
                         help='the number of training iteration over the whole dataset (default: 50)')
     parser.add_argument('--no_wandb', default=False, action="store_true")
     parser.add_argument('--runs', default=1, type=int,
@@ -127,7 +127,7 @@ def main(args):
         print(f"Model: {model_name}, Run: {run}, Test Acc: {test_acc}")
 
     print(f"Model: {model_name}, Avg Test Acc: {sum(test_accs)/len(test_accs)}")
-    torch.save(best_model.state_dict(), f"./weights/{model_name}.pth")
+    # torch.save(best_model.state_dict(), f"./weights/{model_name}.pth")
 
 
 def train_and_test(args, train_tokens, train_labels, val_tokens, val_labels, test_tokens, test_labels, num_class, device):
@@ -200,8 +200,11 @@ def train_and_test(args, train_tokens, train_labels, val_tokens, val_labels, tes
         
         if not args.no_wandb:
             wandb.log({
-                "training loss": train_loss,
-                "val loss": val_loss
+                "train loss": train_loss,
+                "val loss": val_loss,
+                "train acc": train_acc,
+                "val acc": val_acc,
+                "lr": current_lr,
             },
             step = epoch+1)
 
